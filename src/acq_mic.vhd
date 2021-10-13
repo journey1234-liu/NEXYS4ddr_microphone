@@ -28,7 +28,7 @@ begin
 
 
   fir1: entity work.fir1
-    port map -- decimation : premier filtre fir
+    port map -- decimation: first fir filter
       (
       clk => clk,
       rst => rst,
@@ -39,7 +39,7 @@ begin
       );
 
   fir2: entity work.fir2
-    port map -- decimation : second filtre fir
+    port map -- decimation: second fir filter
       (
       clk => clk,
       rst => rst,

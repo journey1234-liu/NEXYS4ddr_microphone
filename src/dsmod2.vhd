@@ -5,9 +5,9 @@ library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
--- modulateur delta-sigma d'ordre 2  (voir Understanding Delta-Sigma Data Converter, Richard Schreier & Gabor C. Temes page 90)
+-- delta-sigma modulator of order 2 (see Understanding Delta-Sigma Data Converter, Richard Schreier & Gabor C. Temes page 90)
 --
---  (data_in) X(z)  18bits signé---> + ---------(U(z))----------> 1 bit troncation ----------> Y(z) (data_out)
+--  (data_in) X(z)  18bits sign?---> + ---------(U(z))----------> 1 bit troncation ----------> Y(z) (data_out)
 --                                   ^                     |     (sort soit -2^17       |
 --                                   |                     |      soit +2^17            |
 --                                   |                     v                            v
@@ -15,38 +15,38 @@ use ieee.numeric_std.all;
 --
 --                                    H1(z) = z^-1 (2 - z^-1) = 2*z^-1 - z^2
 --
---                                  on note d1 le registre implémenté par le delai z^-1
---                                    et d2 le registre après le 2ème délai.
---                            H(z) est un delai d1, suivi d'une somme de 2 fois d1 et -d2, d2 étant un nouveau delai après d1
+--                                  we note d1 the register implemented by the delai z^-1
+--                                    and d2 the register after the 2nd deadline.
+--                            H(z) is a delay d1, followed by a sum of 2 times d1 and -d2, d2 being a new delay after d1
 --
---                            les equations sont donc :
---                               u := x + 2*d1 - d2      (variable puisque pas de délai)
---                               y := 2^17 si u>=0 sinon -2^17 ( troncation = DAC 1bit)
---                               d1 <= u - y    (registre puisque delai)
---                               d2 <= d1       (registre puisque delai)
+--                            the equations are therefore :
+--                               u := x + 2*d1 - d2      (variable since no delay)
+--                               y := 2^17 if u>=0 otherwise -2^17 ( truncation = DAC 1bit)
+--                               d1 <= u - y    (register since delay)
+--                               d2 <= d1       (register since delay)
 --
---                             pour éviter les débordements, on ajoute plein de bits à u, d1, d2 et y (soit 32 bits signés...)
---                             on pourrait aussi saturer d1 et d2.
---
---
--- E est l'erreur due à la conversion 1 bit (1 bit troncation)
---
--- usuellement, on décrit le signal de sortie Y = U + E, U le signal d'entrée (de la troncation) et E étant l'erreur.
---     sur le dessin on fait U - Y , c'est donc -E en entrée de H1(z).
+--                             to avoid overflows, we add a lot of bits to u, d1, d2 and y (i.e. 32 signed bits...)
+--                             we could also saturate d1 and d2.
 --
 --
--- l'équation du circuit est U(z) = Y(z) - E(z) (suivant définition de E ci-dessus)
---                           U(z) = X(z) + ( H1(z) * -E(z) ) ( équation suivant le circuit dessiné)
+-- E is the error due to 1 bit conversion (1 bit truncation)
+--
+-- usually, we describe the output signal Y = U + E, U the input signal (of the truncation) and E being the error.
+--     on the drawing we make U - Y , so it is -E in input of H1(z).
+--
+--
+-- the equation of the circuit is U(z) = Y(z) - E(z) (according to definition of E above)
+--                           U(z) = X(z) + ( H1(z) * -E(z) ) ( equation according to the drawn circuit)
 --                    soit Y - E = X - H1*E, Y = X + (1-H1)*E
 --
 --                      Y(z) = X(z) + ( 1 - H1(z) ) * E (z)
 --
---   on choisit H1(z) de manière à minimiser l'erreur E(z) dans la bande passante,
---    donc en essayant de rejeter l'ensemble du bruit equivalent dans les haute fréquence,
---    qui sera filtré par le filtre analogique externe (ou par le haut-parleur)
+--    we choose H1(z) so as to minimize the error E(z) in the bandwidth,
+--    so by trying to reject all equivalent noise in high frequencies,
+--    that will be filtered by the external analog filter (or speaker)
 --
---   le plus simple consiste à utiliser H1(z) = z^-1, (un simple delai).  (modulateur ordre 1)
---        ici on utilise un modulateur d'ordre 2
+--   the simplest is to use H1(z) = z^-1, (a simple delay).   (modulator order 1)
+--        here we use a modulator of order 2
 --
 
 
@@ -55,25 +55,25 @@ entity dsmod2 is
     clk  : in std_logic; -- 100MHz
     rst  : in boolean; -- reset synchrone
 
-    clk_ce_in : in boolean; -- clock enable en entrée, 2.5MHz
-    data_in : in signed(17 downto 0); -- sur-échantillon filtré @ 2.5MHz
+    clk_ce_in : in boolean; -- clock enable input, 2.5MHz
+    data_in : in signed(17 downto 0); -- filtered oversample @ 2.5MHz
 
-    data_out : out std_logic := '0' -- sortie du modulateur
+    data_out : out std_logic := '0' -- modulator output
     );
 end entity;
 
 architecture rtl of dsmod2 is
 
-  signal x : signed(24 downto 0) := (others => '0'); -- entree (buffer)
-  signal d1 : signed(24 downto 0) := (others => '0'); -- sortie premier intégrateur
-  signal d2 : signed(24 downto 0) := (others => '0'); -- sortie deuxieme integrateur
+  signal x : signed(24 downto 0) := (others => '0'); -- buffer
+  signal d1 : signed(24 downto 0) := (others => '0'); -- output first integrator
+  signal d2 : signed(24 downto 0) := (others => '0'); -- output second integrator
 
 begin
 
   process (clk)
-    variable u : signed(24 downto 0); -- signal avant la truncation 
-    variable y : signed(24 downto 0); -- sortie (reconvertie en PCM)
-    variable e : signed(24 downto 0); -- erreur (avant les integrateurs)
+    variable u : signed(24 downto 0); -- signal before truncation
+    variable y : signed(24 downto 0); -- output (converted back to PCM)
+    variable e : signed(24 downto 0); -- error (before integrators)
   begin
 
     if rising_edge(clk) then
