@@ -1,5 +1,6 @@
 -- GUENEGO Louis
 -- ENSEIRB-MATMECA, Electronique 2A, 2020
+-- Edited by lyyu, 2021
 
 library ieee;
 use ieee.std_logic_1164.all;
@@ -59,7 +60,7 @@ begin
   clk <= CLK100MHZ;
 
   process(clk)
-    begin  -- reset synchrone. rsts démarre à 0000 à la mise sous tension
+    begin  -- synchronous reset. rsts starts at 0000 when powered on
     if rising_edge(clk) then
       rsts <= rsts(rsts'high-1 downto 0) & CPU_RESETN;
       rst_buf <= (rsts(rsts'high)='0');
@@ -87,8 +88,8 @@ begin
   end process;
 
 
-  M_LRSEL <= '0'; -- sélectionne micro left
-  acq_mic : entity work.acq_mic -- module d'acquisition du micro
+  M_LRSEL <= '0'; -- selects micro left
+  acq_mic : entity work.acq_mic -- microphone acquisition module
     port map
       (
       clk  => clk,
@@ -103,7 +104,7 @@ begin
       );
 
   
-  -- début traitement du signal ech_0 (18bits 39062.5kHz)
+  -- start signal processing ech_0 (18bits 39062.5kHz)
 
   autoVol : entity work.auto_vol 
     port map (
@@ -115,26 +116,18 @@ begin
               
               ech_out => ech_1
               );
-    process (clk) -- on choisi le volumme automatique avec SW(15)
+    process (clk) -- bypass the autovol module
     begin
     if (rising_edge(clk)) then
-    SW15ss <= SW15s; SW15s <= SW(15); -- synchro
       if clk_ech then
-        if SW15ss='1' then
-          ech_2 <= ech_1;
-          LED_auto_vol <= '1';
-        else
           ech_2 <= ech_0;
           LED_auto_vol <= '0';
-        end if;
       end if;
       LED(15) <= LED_auto_vol;
     end if;
     end process;
     
-
-    
-    
+       
     reverb : entity work.reverb
         port map (
           CLK100MHZ => clk,
@@ -143,26 +136,20 @@ begin
           ech_in => ech_2,
           ech_out => ech_3
           );   
-    process (clk) -- on choisi la reverb on ou off avec SW(14)
+    process (clk) -- bypass the reverb module
     begin
     if (rising_edge(clk)) then
-    SW14ss <= SW14s; SW14s <= SW(14); -- synchro
       if clk_ech then
-        if SW14ss='1' then
-          ech_fin <= ech_3;
-          LED_reverb <= '1';
-        else
           ech_fin <= ech_2;
           LED_reverb <= '0';
-        end if;
       end if;
       LED(14) <= LED_reverb;
     end if;
     end process;
     
-  -- fin du traitement du signal (18bits 39062.5kHz), début de la modulation
+  -- end of signal processing (18bits 39062.5kHz), start of modulation
 
-  se1: entity work.mod_out -- module modulation du signal
+  se1: entity work.mod_out -- signal modulation module
     port map
       (
       clk => clk,
@@ -174,7 +161,7 @@ begin
       PDM_out => dac_out
       );
 
-  -- ampli audio, on choisi soit le micro soit le signal modulé selon SW(0)
+  -- audio amp, we choose either the microphone or the signal modulated according to SW(0)
   AUD_SD <= '1';
   process(clk)
     begin
@@ -188,7 +175,7 @@ begin
           audio_out <= data_mic;
           LED_audio_out <= '0';
         end if;
-        AUD_PWM <= audio_out; -- bascule D dans IO
+        AUD_PWM <= audio_out; -- toggle D in IO
         LED(0) <= LED_audio_out;
       end if;
     end if;
