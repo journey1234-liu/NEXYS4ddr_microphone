@@ -6,24 +6,23 @@ use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
 
--- premier filtre FIR pour la décimation
+-- first FIR filter for decimation
 --
--- filtre FIR passe-bas et décimateur par 8
--- on passe de 2.5MHz à 312.5kHz avec un filtre FIR passe bas anti-repliement synthétisé avec
+-- LOW-pass FIR filter and decimator by 8
+-- we go from 2.5MHz to 312.5kHz with a LOW-pass anti-folding FIR filter synthesized with
 --   Iowa Hills FIR Filter Designer Version 7.0, freeware
 --   Sampling Freq 2500000
 --   Fc = 0,05 (62.5kHz)
 --   Kaiser Beta 10, Window Kaiser
 --   raised cosine = 1 (rectangle)
 --   128 taps (=coefficients)
---   0..-0.03dB jusqu'à 25kHz et <-90dB après 140kHz (Fs/2=312.5kHz/2 => 156.25kHz pour satisfaire critère de Shannon)
+--   0..-0.03dB up to 25kHz and < -90dB after 140kHz (Fs/2=312.5kHz/2 => 156.25kHz to meet Shannon criterion)
 --
--- Les coefficients réels sont normalisés à 2^19 et arrondi à l'entier signé le plus proche (donc 1+15bits signé).
---   Le plus petit coefficient vaut 2,66E-6 soit 11 une fois normalisé.
---   Le plus grand coefficient vaut 0.0584 soit 30652 une fois normalisé, ce qui tient sur 16bits signés.
---    (avec Excel et copiés coller ici. Iowa Hills FIR Filter Designer Version 7.0 est utilisé aussi pour vérifier que l'arrondi des coefficients
---      ne dégrade pas le filtre, en rechargeant les coefficient normalisé et arrondi)).
--- le résultat final ramené à 18bits signé.
+-- The actual coefficients are normalized to 2^19 and rounded to the nearest signed integer (so 1+15bits signed).
+--   The smallest coefficient is 2.66E-6 or 11 when normalized.
+--   The largest coefficient is 0.0584 or 30652 once normalized, which holds on 16 signed bits.
+--    (with Excel and copied paste here. Iowa Hills FIR Filter Designer Version 7.0 is also used to verify that rounding coefficients does not degrade the filter, by reloading the normalized and rounded coefficients)).
+-- le résultat final ramen? ? 18bits sign?.
 -- Les échantillons du microphone valent 0 ou 1, considérés ici comme -1 et +1 pour supprimer l'offset de 0.5.
 --   Si un échantillon PDM vaut 0, alors on soustrait le coefficient
 --   Si un échantillon PDM vaut 1, alors on ajoute le coefficient
@@ -35,10 +34,10 @@ entity fir1 is
     rst  : in boolean; -- reset synchrone
 
     clk_ce_in : in boolean; -- clock enable en entrée, 2.5MHz
-    data_in : in std_logic; -- PDM data en entrée 0 ou 1 modulé sigma delta
+    data_in : in std_logic; -- PDM data en entrée 0 ou 1 modul? sigma delta
 
     clk_ce_out : in boolean; -- clock enable decimation 2.5MHz/8 = 312.5kHz, se produit en même temps que clk_ce_in
-    ech_out : out signed(17 downto 0) := (others => '0') -- echantillon décimés en sortie, 18bits signé,valide lorsque clk_ce_out est actif
+    ech_out : out signed(17 downto 0) := (others => '0') -- echantillon décimés en sortie, 18bits sign?,valide lorsque clk_ce_out est actif
     );
   end entity;
 
@@ -47,10 +46,10 @@ architecture rtl of fir1 is
 -- FIR filter coefficients:
   type coef_mem_t is array (natural range <>) of signed(15 downto 0);
   signal coef_mem : coef_mem_t(0 to 128-1) := (
--- FIR low pass filter généré avec Iowa Hills FIR Filter Designer Version 7.0 - Freeware
+-- FIR low pass filter génér? avec Iowa Hills FIR Filter Designer Version 7.0 - Freeware
 -- Sampling Freq=2500000  , Fc=0.05 (62.5kHz), Num Taps=128, Kaiser Beta=10, Window Kaiser, 1,000 Rectangle 73.17kHz
--- Normalisation de coefficient à 2^19 et arrondi à l'entier le plus proche
--- (controle du filtre par rechargement des coefficient dans Iowa Hills FIR Filter Designer => pas de différence à l'oeil nu.
+-- Normalisation de coefficient ? 2^19 et arrondi ? l'entier le plus proche
+-- (controle du filtre par rechargement des coefficient dans Iowa Hills FIR Filter Designer => pas de différence ? l'oeil nu.
 -- note: le filtre est symétrique, coef(0) = coef(127), coef(1) = coef(126) ... coef(63)=coef(64)
     0   => to_signed( -1      , 16),
     1   => to_signed( -3      , 16),
@@ -188,7 +187,7 @@ architecture rtl of fir1 is
   -- mémoire circulaire pour garder les 128 derniers échantillons
   type data_in_mem_t is  array (natural range <>) of std_logic;
   signal data_in_mem : data_in_mem_t(0 to 128-1) :=
-    (  -- preinit à 0, donc alternance de 1 / 0 (0 vaut -1, 1 vaut 1...)
+    (  -- preinit ? 0, donc alternance de 1 / 0 (0 vaut -1, 1 vaut 1...)
     1 => '1', 3 => '1', 5 => '1', 7 => '1', 9 => '1', 11 => '1', 13 => '1', 15 => '1', 17 => '1', 19 => '1',
     21 => '1', 23 => '1', 25 => '1', 27 => '1', 29 => '1', 31 => '1', 33 => '1', 35 => '1', 37 => '1', 39 => '1',
     41 => '1', 43 => '1', 45 => '1', 47 => '1', 49 => '1', 51 => '1', 53 => '1', 55 => '1', 57 => '1', 59 => '1',
@@ -210,7 +209,7 @@ architecture rtl of fir1 is
 
   signal cpt : integer range 0 to 127+10; -- index machine d'état de calcul du filtre, 128 + init pipeline & normalisation / saturation résultat
 
-  signal acc : signed(20 downto 0) := (others => '0'); -- les coef sont normalisés à 2^19, et le gain est de 2^19 (environ à cause des arrondi)
+  signal acc : signed(20 downto 0) := (others => '0'); -- les coef sont normalisés ? 2^19, et le gain est de 2^19 (environ ? cause des arrondi)
     -- on ajoute un bit de signe + 1 bit pour être sûr qu'il n'y ait pas de débordement
     -- la somme des valeurs absolues des coef vaut 663982, = 19,34bits, il faut donc 20bits+signe=21bits
 
@@ -229,8 +228,8 @@ architecture rtl of fir1 is
       end if;
 
       if (clk_ce_out and (cpt=0)) then -- on va démarrer le filtre décimateur. note: clk_ce_out se produit en même temps que clk_ce_in, 1 fois sur 8,
-        cpt <= cpt + 1; -- 40*8 cycles = 320cycles à 100MHz. Le filtre consomme 130 sur 320 cycles environ.
-        ptr_out <= ptr_in + 1;  -- démarre avec l'échantillon le plus ancien pour éviter qu'il ne soit écrasé avant qu'on l'ait utilisé...
+        cpt <= cpt + 1; -- 40*8 cycles = 320cycles ? 100MHz. Le filtre consomme 130 sur 320 cycles environ.
+        ptr_out <= ptr_in + 1;  -- démarre avec l'échantillon le plus ancien pour éviter qu'il ne soit écras? avant qu'on l'ait utilis?...
         ptr_coef <= to_unsigned(127,ptr_coef'length); -- commence par le dernier (on pourrait aussi commence par le premier vu que le filtre est symétrique)
         acc <= (others => '0');
       end if;
@@ -241,7 +240,7 @@ architecture rtl of fir1 is
         ptr_coef <= ptr_coef - 1; -- on consulte les coefficiant dans l'ordre decroissant
       end if;
 
-      if (cpt>=4) and (cpt<128+4) then -- on accumule une fois le pipeline lancé
+      if (cpt>=4) and (cpt<128+4) then -- on accumule une fois le pipeline lanc?
         if data_out_reg='0' then
           acc <= acc - coef_out_reg; -- -1 * coef
         else
@@ -259,7 +258,7 @@ architecture rtl of fir1 is
       end if;
 
       ptr_out_reg <= ptr_out; -- bufferise les adresses et les data en sortie pour fréquence max ! (etape 2 du pipeline)
-      data_out <= data_in_mem(to_integer(ptr_out_reg)); -- on n'est pas à un ou 2 coup d'horloge prêt et on a plein de bascules D. (etape 3 du pipeline)
+      data_out <= data_in_mem(to_integer(ptr_out_reg)); -- on n'est pas ? un ou 2 coup d'horloge prêt et on a plein de bascules D. (etape 3 du pipeline)
       data_out_reg <= data_out; -- (etape 4 du pipeline)
 
       ptr_coef_reg <= ptr_coef; -- (etape 2 du pipeline des coefficiants)
