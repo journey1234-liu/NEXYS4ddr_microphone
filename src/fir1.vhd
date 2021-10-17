@@ -22,22 +22,22 @@ use ieee.numeric_std.all;
 --   The smallest coefficient is 2.66E-6 or 11 when normalized.
 --   The largest coefficient is 0.0584 or 30652 once normalized, which holds on 16 signed bits.
 --    (with Excel and copied paste here. Iowa Hills FIR Filter Designer Version 7.0 is also used to verify that rounding coefficients does not degrade the filter, by reloading the normalized and rounded coefficients)).
--- le résultat final ramen? ? 18bits sign?.
--- Les échantillons du microphone valent 0 ou 1, considérés ici comme -1 et +1 pour supprimer l'offset de 0.5.
---   Si un échantillon PDM vaut 0, alors on soustrait le coefficient
---   Si un échantillon PDM vaut 1, alors on ajoute le coefficient
+-- the final result reduced to 18bits signed.
+-- Microphone samples are worth 0 or 1, considered here as -1 and +1 to remove the offset of 0.5.
+--   If a PDM sample is 0, then the coefficient is subtracted
+--   If a PDM sample is 1, then the coefficient is added
 --
 
 entity fir1 is
   port (
     clk  : in std_logic; -- 100MHz
-    rst  : in boolean; -- reset synchrone
+    rst  : in boolean; -- synchronous reset
 
-    clk_ce_in : in boolean; -- clock enable en entrée, 2.5MHz
-    data_in : in std_logic; -- PDM data en entrée 0 ou 1 modul? sigma delta
+    clk_ce_in : in boolean; -- clock enable input, 2.5MHz
+    data_in : in std_logic; -- PDM data input 0 or 1 modulated sigma delta
 
-    clk_ce_out : in boolean; -- clock enable decimation 2.5MHz/8 = 312.5kHz, se produit en même temps que clk_ce_in
-    ech_out : out signed(17 downto 0) := (others => '0') -- echantillon décimés en sortie, 18bits sign?,valide lorsque clk_ce_out est actif
+    clk_ce_out : in boolean; -- clock enable decimation 2.5MHz/8 = 312.5kHz, occurs at the same time as clk_ce_in
+    ech_out : out signed(17 downto 0) := (others => '0') -- samples decimated in output, 18bits signed, valid when clk_ce_out is active
     );
   end entity;
 
@@ -46,11 +46,11 @@ architecture rtl of fir1 is
 -- FIR filter coefficients:
   type coef_mem_t is array (natural range <>) of signed(15 downto 0);
   signal coef_mem : coef_mem_t(0 to 128-1) := (
--- FIR low pass filter génér? avec Iowa Hills FIR Filter Designer Version 7.0 - Freeware
+-- FIR low pass filter generated with Iowa Hills FIR Filter Designer Version 7.0 - Freeware
 -- Sampling Freq=2500000  , Fc=0.05 (62.5kHz), Num Taps=128, Kaiser Beta=10, Window Kaiser, 1,000 Rectangle 73.17kHz
--- Normalisation de coefficient ? 2^19 et arrondi ? l'entier le plus proche
--- (controle du filtre par rechargement des coefficient dans Iowa Hills FIR Filter Designer => pas de différence ? l'oeil nu.
--- note: le filtre est symétrique, coef(0) = coef(127), coef(1) = coef(126) ... coef(63)=coef(64)
+-- Coefficient normalization to 2^19 and rounding to the nearest integer
+-- (filter control by reloading coefficients in Iowa Hills FIR Filter Designer => difference to the naked eye.
+-- note: the filter is symmetrical, coef(0) = coef(127), coef(1) = coef(126) ... coef(63)=coef(64)
     0   => to_signed( -1      , 16),
     1   => to_signed( -3      , 16),
     2   => to_signed( -5      , 16),
@@ -184,10 +184,10 @@ architecture rtl of fir1 is
   signal coef_out : signed(15 downto 0);
   signal coef_out_reg : signed(15 downto 0);
 
-  -- mémoire circulaire pour garder les 128 derniers échantillons
+  -- circular memory to keep the last 128 samples
   type data_in_mem_t is  array (natural range <>) of std_logic;
   signal data_in_mem : data_in_mem_t(0 to 128-1) :=
-    (  -- preinit ? 0, donc alternance de 1 / 0 (0 vaut -1, 1 vaut 1...)
+    (  -- preinit to 0,  alternation of 1 / 0 (0 is -1, 1 is 1...)
     1 => '1', 3 => '1', 5 => '1', 7 => '1', 9 => '1', 11 => '1', 13 => '1', 15 => '1', 17 => '1', 19 => '1',
     21 => '1', 23 => '1', 25 => '1', 27 => '1', 29 => '1', 31 => '1', 33 => '1', 35 => '1', 37 => '1', 39 => '1',
     41 => '1', 43 => '1', 45 => '1', 47 => '1', 49 => '1', 51 => '1', 53 => '1', 55 => '1', 57 => '1', 59 => '1',
@@ -201,17 +201,17 @@ architecture rtl of fir1 is
   signal data_out : std_logic;
   signal data_out_reg : std_logic;
 
-  signal ptr_in : unsigned(6 downto 0) := (others => '0'); -- pointeur d'entrée des échantillons
-  signal ptr_out : unsigned(6 downto 0) := (others => '0'); -- pointeur de calcul du filtre
-  signal ptr_out_reg : unsigned(6 downto 0) := (others => '0'); -- pointeur de calcul du filtre
-  signal ptr_coef : unsigned(6 downto 0) := (others => '0'); -- pointeur des coefficients
-  signal ptr_coef_reg : unsigned(6 downto 0); -- pointeur des coefficients
+  signal ptr_in : unsigned(6 downto 0) := (others => '0'); -- sample input pointer
+  signal ptr_out : unsigned(6 downto 0) := (others => '0'); -- filter calculation pointer
+  signal ptr_out_reg : unsigned(6 downto 0) := (others => '0'); -- filter calculation pointer
+  signal ptr_coef : unsigned(6 downto 0) := (others => '0'); -- coefficient pointer
+  signal ptr_coef_reg : unsigned(6 downto 0); -- coefficient pointer
 
-  signal cpt : integer range 0 to 127+10; -- index machine d'état de calcul du filtre, 128 + init pipeline & normalisation / saturation résultat
+  signal cpt : integer range 0 to 127+10; -- filter calculation state machine index, 128 + init pipeline & normalization / saturation result
 
-  signal acc : signed(20 downto 0) := (others => '0'); -- les coef sont normalisés ? 2^19, et le gain est de 2^19 (environ ? cause des arrondi)
-    -- on ajoute un bit de signe + 1 bit pour être sûr qu'il n'y ait pas de débordement
-    -- la somme des valeurs absolues des coef vaut 663982, = 19,34bits, il faut donc 20bits+signe=21bits
+  signal acc : signed(20 downto 0) := (others => '0'); -- the coefs are normalized to 2^19, and the gain is 2^19 (about due to rounding)
+    -- we add a sign bit + 1 bit to be sure that there is no overflow
+    -- the sum of the absolute values of the coef is 663982, = 1934bits, so it takes 20bits+sign=21bits
 
 
   begin
@@ -222,48 +222,48 @@ architecture rtl of fir1 is
 
     if rising_edge(clk) then
 
-      if clk_ce_in then -- memorisation des echantillons en entree
-        data_in_mem(to_integer(ptr_in)) <= data_in; -- remplie la mémoire circulaire avec les échantillons en entrée
-        ptr_in <= ptr_in + 1; -- incrémentation du pointeur
+      if clk_ce_in then -- memorization of input samples
+        data_in_mem(to_integer(ptr_in)) <= data_in; -- filled the circular memory with the input samples
+        ptr_in <= ptr_in + 1; -- pointer increments
       end if;
 
-      if (clk_ce_out and (cpt=0)) then -- on va démarrer le filtre décimateur. note: clk_ce_out se produit en même temps que clk_ce_in, 1 fois sur 8,
-        cpt <= cpt + 1; -- 40*8 cycles = 320cycles ? 100MHz. Le filtre consomme 130 sur 320 cycles environ.
-        ptr_out <= ptr_in + 1;  -- démarre avec l'échantillon le plus ancien pour éviter qu'il ne soit écras? avant qu'on l'ait utilis?...
-        ptr_coef <= to_unsigned(127,ptr_coef'length); -- commence par le dernier (on pourrait aussi commence par le premier vu que le filtre est symétrique)
+      if (clk_ce_out and (cpt=0)) then -- we will start the decimator filter. note: clk_ce_out occurs at the same time as clk_ce_in, 1 in 8 times,
+        cpt <= cpt + 1; -- 40*8 cycles = 320 cycles at 100MHz. The filter consumes about 130 over 320 cycles.
+        ptr_out <= ptr_in + 1;  -- starts with the oldest sample to prevent it from being crushed before it has been used...
+        ptr_coef <= to_unsigned(127,ptr_coef'length); -- starts with the last one (we could also start with the first since the filter is symmetrical)
         acc <= (others => '0');
       end if;
 
-      if (cpt /= 0) then -- on initialise le pipeline quand cpt<4, puis on fait tourner la machine
+      if (cpt /= 0) then -- we initialize the pipeline when cpt > 4, then run the machine
         cpt <= cpt + 1;
-        ptr_out <= ptr_out + 1; -- etape 1 du pipeline
-        ptr_coef <= ptr_coef - 1; -- on consulte les coefficiant dans l'ordre decroissant
+        ptr_out <= ptr_out + 1; -- step 1 of the pipeline
+        ptr_coef <= ptr_coef - 1; -- the co-beneficiaries are consulted in descending order
       end if;
 
-      if (cpt>=4) and (cpt<128+4) then -- on accumule une fois le pipeline lanc?
+      if (cpt>=4) and (cpt<128+4) then -- we accumulate once the pipeline is launched
         if data_out_reg='0' then
           acc <= acc - coef_out_reg; -- -1 * coef
         else
           acc <= acc + coef_out_reg; -- +1 * coef
           end if;
-      elsif (cpt=128+4) then -- fin de la décimation, normalisation par 19-17=2bits et gestion de la potentielle saturation
-        if (acc(acc'high downto 2) < -2**17) then -- saturation negative
+      elsif (cpt=128+4) then -- end of decimation, normalization by 19-17=2 bits and management of potential saturation
+        if (acc(acc'high downto 2) < -2**17) then -- negative saturation
           ech_out <= to_signed(-2**17,ech_out'length);
-        elsif (acc(acc'high downto 2) > 2**17 - 1) then -- saturation positive
+        elsif (acc(acc'high downto 2) > 2**17 - 1) then -- positive saturation
           ech_out <= to_signed(2**17 - 1,ech_out'length);
         else
-          ech_out <= acc(17+2 downto 2); -- on met 16 bits sur les 18 de l'acumulateur
+          ech_out <= acc(17+2 downto 2); -- we put 16 bits on the 18 of the acumulator
           end if;
-        cpt <= 0; -- fin du FIR décimateur, prêt pour la prochaine décimation
+        cpt <= 0; -- end of the decimator FIR, ready for the next decimation
       end if;
 
-      ptr_out_reg <= ptr_out; -- bufferise les adresses et les data en sortie pour fréquence max ! (etape 2 du pipeline)
-      data_out <= data_in_mem(to_integer(ptr_out_reg)); -- on n'est pas ? un ou 2 coup d'horloge prêt et on a plein de bascules D. (etape 3 du pipeline)
-      data_out_reg <= data_out; -- (etape 4 du pipeline)
+      ptr_out_reg <= ptr_out; -- buffers addresses and data output for max frequency!  (step 2 of the pipeline)
+      data_out <= data_in_mem(to_integer(ptr_out_reg)); -- we are not at one or 2 clock strokes ready and we have plenty of D. rockers. (step 3 of the pipeline)
+      data_out_reg <= data_out; -- (step 4 of the pipeline)
 
-      ptr_coef_reg <= ptr_coef; -- (etape 2 du pipeline des coefficiants)
-      coef_out <= coef_mem(to_integer(ptr_coef_reg)); -- (etape 3 du pipeline des coefficiants)
-      coef_out_reg <= coef_out; -- (etape 4 du pipeline des coefficiants)
+      ptr_coef_reg <= ptr_coef; -- (Step 2 of the co-beneficiary pipeline)
+      coef_out <= coef_mem(to_integer(ptr_coef_reg)); -- (step 3 of the co-beneficiary pipeline)
+      coef_out_reg <= coef_out; -- (Step 4 of the co-beneficiary pipeline)
 
       if rst then
           ptr_in <= (others => '0');
