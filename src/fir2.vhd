@@ -5,42 +5,42 @@ library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
--- second filtre FIR pour la décimation
+-- second FIR filter for decimation
 --
--- filtre FIR passe-bas et décimateur par 8
--- on passe de 312.5kHz à 39.0625kHz avec un filtre FIR passe bas anti-repliement synthétisé avec
+-- LOW-pass FIR filter and decimator by 8
+-- we go from 312.5kHz to 39.0625kHz with an anti-folding low-pass FIR filter synthesized with
 --   Iowa Hills FIR Filter Designer Version 7.0, freeware
 --   Sampling Freq 312500
 --   Fc = 0,09 (14.06kHz)
 --   Kaiser Beta 10, Window Kaiser
 --   raised cosine = 1 (rectangle)
 --   256 taps (=coefficients)
---   0..-0.03dB jusqu'à 11.75kHz et <-90dB après 19kHz (Fs/2=39.0625kHz/2 => 19.5kHz pour satisfaire critère de Shannon)
+--   0..-0.03dB up to 11.75kHz and &lt;-90dB after 19kHz (Fs/2=39.0625kHz/2 => 19.5kHz to meet Shannon criterion)
 --
--- Les coefficients réels sont normalisés à 2^22 et arrondi à l'entier signé le plus proche (donc 23bits signé).
--- Les échantillons d'entrée sont sur 18bits signés, le but étant d'utiliser une multiplier cablé Xilinx Artix7 DSP48 25*18bit.
---   Le plus petit coefficient vaut 2,66E-6 soit 11 une fois normalisé.
---   Le plus grand coefficient vaut 0.0065699 soit 27556 une fois normalisé, ce qui tient sur 16bits signés.
---    (avec Excel et copiés coller ici. Iowa Hills FIR Filter Designer Version 7.0 est utilisé aussi pour vérifier que l'arrondi des coefficients
---      ne dégrade pas le filtre, en rechargeant les coefficient normalisé et arrondi)).
--- le résultat final ramené à 18bits signé.
--- Les échantillons du microphone valent 0 ou 1, considérés ici comme -1 et +1 pour supprimer l'offset de 0.5.
---   Si un échantillon PDM vaut 0, alors on soustrait le coefficient
---   Si un échantillon PDM vaut 1, alors on ajoute le coefficient
--- L'accumulateur fait 24bits, le filtre ne présentant pas de dépassement, on ne devrait pas dépasser 23bits signé au final
---   le résultat final est normalisé à 18bits signés, et saturé par précaution à +/-2^17-1
+-- The actual coefficients are normalized to 2^22 and rounded to the nearest signed integer (so 23bits signed).
+-- The input samples are on 18bits signed, the goal being to use a wired multiplier Xilinx Artix7 DSP48 25*18bit.
+--   The smallest coefficient is 2.66E-6 or 11 when normalized.
+--   The largest coefficient is 0.0065699 or 27556 when normalized, which holds on 16 signed bit.
+--    (with Excel and copied paste here.  Iowa Hills FIR Filter Designer Version 7.0 is also used to verify that rounding coefficients 
+--         does not degrade the filter, by reloading the normalized and rounded coefficients)).
+-- the final result reduced to 18bits signed.
+-- Microphone samples are worth 0 or 1, considered here as -1 and +1 to remove the offset of 0.5.
+--   If a PDM sample is 0, then the coefficient is subtracted
+--   If a PDM sample is 1, then the coefficient is added
+-- The accumulator is 24bits, the filter does not have an exceedance, we should not exceed 23bits signed in the end
+--   the final result is normalized to 18 signed bits, and saturated as a precaution at +/-2^17-1
 --
 
 entity fir2 is
   port (
     clk  : in std_logic; -- 100MHz
-    rst  : in boolean; -- reset synchrone 
+    rst  : in boolean; -- synchronous reset
     
-    clk_ce_in : in boolean; -- clock enable en entrée, 312.5kHz
-    data_in : in signed(17 downto 0); -- echantillon intermédiaire, provenant de fir1
+    clk_ce_in : in boolean; -- clock enable input, 312.5kHz
+    data_in : in signed(17 downto 0); -- intermediate sample, from fir1
 
-    clk_ce_out : in boolean; -- clock enable decimation 312.5Hz/8 = 39.0625kHz, se produit en même temps que clk_ce_in
-    ech_out : out signed(17 downto 0) := (others => '0') -- echantillon décimés en sortie, 18bits signé, valide lorsque clk_ce_out est actif
+    clk_ce_out : in boolean; -- clock enable decimation 312.5Hz/8 = 39.0625kHz, occurs at the same time as clk_ce_in
+    ech_out : out signed(17 downto 0) := (others => '0') -- output decimated samples, 18bits signed, valid when clk_ce_out is active
     );
   end entity;
 
@@ -49,11 +49,11 @@ architecture rtl of fir2 is
 -- FIR filter coefficients:
   type coef_mem_t is  array (natural range <>) of signed(17 downto 0);
   signal coef_mem : coef_mem_t(0 to 256-1) := (
--- FIR low pass filter généré avec Iowa Hills FIR Filter Designer Version 7.0 - Freeware
+-- FIR low pass filter generated with Iowa Hills FIR Filter Designer Version 7.0 - Freeware
 --   Sampling Freq=312500  , Fc=0.09 (14.06kHz), Num Taps=256, Kaiser Beta=10, Window Kaiser, 1,000 Rectangle 14.73kHz
---   Normalisation de coefficient à 2^20 et arrondi à l'entier le plus proche (max abs=98543 = 16.6bit => tient sur 17+1 = 18bits signés)
---   (controle du filtre par rechargement des coefficient dans Iowa Hills FIR Filter Designer => pas de différence à l'oeil nu.
--- note: le filtre est symétrique, coef(0) = coef(255), coef(1) = coef(254) ... coef(127)=coef(128)
+--   Normalization of coefficient to 2^20 and rounded to the nearest integer (max abs=98543 = 16.6bit = &gt; fits on 17+1 = 18bits signed)
+--   (filter control by reloading coefficients in Iowa Hills FIR Filter Designer => difference to the naked eye.
+-- note: the filter is symmetrical, coef(0) = coef(255), coef(1) = coef(254) ...  coef(127)=coef(128)
     0   => to_signed( 0      , 18),
     1   => to_signed( 0      , 18),
     2   => to_signed( -1     , 18),
@@ -315,24 +315,24 @@ architecture rtl of fir2 is
   signal coef_out : signed(17 downto 0);
   signal coef_out_reg : signed(17 downto 0);
 
-  -- mémoire circulaire pour garder les 256 derniers échantillons
+  -- circular memory to keep the last 256 samples
   type data_in_mem_t is  array (natural range <>) of signed(17 downto 0);
-  signal data_in_mem : data_in_mem_t(0 to 256-1) := ( others => to_signed(0,18) ); -- preinit à 0
+  signal data_in_mem : data_in_mem_t(0 to 256-1) := ( others => to_signed(0,18) ); -- preinit to 0
   signal data_out : signed(17 downto 0);
   signal data_out_reg : signed(17 downto 0);
 
-  signal ptr_in : unsigned(7 downto 0) := (others => '0'); -- pointeur d'entrée des échantillons
-  signal ptr_out : unsigned(7 downto 0) := (others => '0'); -- pointeur de calcul du filtres
-  signal ptr_out_reg : unsigned(7 downto 0) := (others => '0'); -- pointeur de calcul du filtres
-  signal ptr_coef : unsigned(7 downto 0) := (others => '0'); -- pointeur des coefficients
-  signal ptr_coef_reg : unsigned(7 downto 0); -- pointeur des coefficients
+  signal ptr_in : unsigned(7 downto 0) := (others => '0'); -- sample input pointer
+  signal ptr_out : unsigned(7 downto 0) := (others => '0'); -- filter calculation pointer
+  signal ptr_out_reg : unsigned(7 downto 0) := (others => '0'); -- filter calculation pointer
+  signal ptr_coef : unsigned(7 downto 0) := (others => '0'); -- coefficient pointer
+  signal ptr_coef_reg : unsigned(7 downto 0); -- coefficient pointer
 
-  signal cpt : integer range 0 to 256+10; -- index machine d'état de calcul du filtre, 128 + init pipeline & normalisation / saturation résultat
+  signal cpt : integer range 0 to 256+10; -- filter calculation state machine index, 128 + init pipeline & normalization / saturation result
 
-  signal acc : signed(21+17 downto 0) := (others => '0'); -- les coef sont normalisés à 2^20, les echantillons à 2^17, on accumule 256x
-    -- la somme des valeurs absolues des coef vaut 1824350, = 20,8bits, on ne peut donc pas dépasser 21+17+1 (signe) bits
+  signal acc : signed(21+17 downto 0) := (others => '0'); -- the coef are normalized to 2^20, the samples to 2^17, we accumulate 256x
+    -- the sum of the absolute values of the coef is 1824350, = 20,8bits, so we can not exceed 21 + 17 + 1 (sign) bits
 
-  signal mul_data_coef : signed(18+18-1 downto 0);  -- sortie du multiplieur
+  signal mul_data_coef : signed(18+18-1 downto 0);  -- multiplier output
   signal mul_data_coef_reg : signed(18+18-1 downto 0);
 
 
@@ -345,26 +345,26 @@ architecture rtl of fir2 is
     if rising_edge(clk) then
 
       if clk_ce_in then
-        data_in_mem(to_integer(ptr_in)) <= data_in; -- remplie la mémoire circulaire avec les échantillons en entrée
+        data_in_mem(to_integer(ptr_in)) <= data_in; -- filled the circular memory with the input samples
         ptr_in <= ptr_in + 1; -- incrementation
       end if;
 
-      if (clk_ce_out and (cpt=0)) then -- démarre le filtre décimateur. note: clk_ce_out se produit en même temps que clk_ce_in, 1 fois sur 8,
-        cpt <= cpt + 1; -- tous les 40*8 cycles = 320cycles à 100MHz. Le filtre consomme 130 cycles environ.
-        ptr_out <= ptr_in + 1;  -- auto wrapping, démarre avec l'échantillon le plus ancien pour éviter qu'il ne soit écrasé avant qu'on l'ait utilisé...
-        ptr_coef <= to_unsigned(255,ptr_coef'length); -- commence par le dernier (on pourrait aussi commence par le premier vu que le filtre est symétrique)
+      if (clk_ce_out and (cpt=0)) then -- starts the decimator filter.  note: clk_ce_out occurs at the same time as clk_ce_in, 1 in 8 times,
+        cpt <= cpt + 1; -- every 40*8 cycles = 320cycles at 100MHz.  The filter consumes about 130 cycles.
+        ptr_out <= ptr_in + 1;  -- auto wrapping, starts with the oldest sample to prevent it from being crushed before it has been used...
+        ptr_coef <= to_unsigned(255,ptr_coef'length); -- starts with the last one (we could also start with the first since the filter is symmetrical)
         acc <= (others => '0');
       end if;
 
-      if (cpt /= 0) then -- le filtre tourne
+      if (cpt /= 0) then -- the filter rotates
         cpt <= cpt + 1;
-        ptr_out <= ptr_out + 1; -- (etape 1 pipeline)
-        ptr_coef <= ptr_coef - 1; -- (etape 1 pipeline coef)
+        ptr_out <= ptr_out + 1; -- (step 1 pipeline)
+        ptr_coef <= ptr_coef - 1; -- (step 1 coef pipeline)
       end if;
 
-      if (cpt>=6) and (cpt<256+6) then -- on accumule une fois le pipeline lancé
-        acc <= acc + mul_data_coef_reg; -- accumulateur 18+18+8 bits = 44bits signé (etape 6 pipeline)
-      elsif (cpt=256+6) then -- fin de la décimation, normalisation par 19-17=2bits et gestion de la potentielle saturation
+      if (cpt>=6) and (cpt<256+6) then -- we accumulate once the pipeline is launched
+        acc <= acc + mul_data_coef_reg; -- 18+18+8-bit accumulator = signed 44-bit (step 6 pipeline)
+      elsif (cpt=256+6) then -- end of decimation, normalization by 19-17=2 bits and management of potential saturation
         if (acc(acc'high downto 20) < -2**17) then
           ech_out <= to_signed(-2**17,ech_out'length);
         elsif (acc(acc'high downto 20) > 2**17 - 1) then
@@ -372,19 +372,19 @@ architecture rtl of fir2 is
         else
           ech_out <= acc(17+20 downto 20);
           end if;
-        cpt <= 0; -- fin du FIR décimateur, prêt pour la prochaine décimation
+        cpt <= 0; -- end of the decimator FIR, ready for the next decimation
         end if;
 
-      ptr_out_reg <= ptr_out; -- bufferise les adresses et les data en sortie pour fréquence max ! (etape 2 pipeline)
-      data_out <= data_in_mem(to_integer(ptr_out_reg)); -- on n'est pas à un ou 2 coup d'horloge prêt et on a plein de bascules D. (etape 3 pipeline)
-      data_out_reg <= data_out; -- (etape 4 pipeline)
+      ptr_out_reg <= ptr_out; -- buffers addresses and data output for max frequency!  (step 2 pipeline)
+      data_out <= data_in_mem(to_integer(ptr_out_reg)); -- we are not at one or 2 strokes of the clock ready and we have plenty of D rockers. (step 3 pipeline)
+      data_out_reg <= data_out; -- (step 4 pipeline)
 
-      ptr_coef_reg <= ptr_coef; -- (etape 2 pipeline coef)
-      coef_out <= coef_mem(to_integer(ptr_coef_reg)); -- (etape 3 pipeline coef)
-      coef_out_reg <= coef_out; -- (etape 4 pipeline coef)
+      ptr_coef_reg <= ptr_coef; -- (step 2 pipeline coef)
+      coef_out <= coef_mem(to_integer(ptr_coef_reg)); -- (step 3 pipeline coef)
+      coef_out_reg <= coef_out; -- (step 4 pipeline coef)
 
-      mul_data_coef <= data_out_reg * coef_out_reg; -- multiplier 18x18 signé (etape 5 pipeline fusion)
-      mul_data_coef_reg <= mul_data_coef; -- buffer pour vitesse max (etape 6 pipeline)
+      mul_data_coef <= data_out_reg * coef_out_reg; -- multiply 18x18 signed (step 5 fusion pipeline)
+      mul_data_coef_reg <= mul_data_coef; -- buffer for max speed (step 6 pipeline)
       
       if rst then
           ptr_in <= (others => '0');
