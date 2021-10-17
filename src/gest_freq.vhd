@@ -7,45 +7,45 @@ use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
 
--- génération des horloges
+-- generating clocks
 --
--- en interne, on n'utilise qu'une seule horloge à 100MHz, les sous-fréquences utilisent les "clock enable" des bascules D
---   cela simplifie la gestion des synchronisation des horloges/signaux en limitant le nombre d'horloge à 1
+-- internally, only one clock is used at 100MHz, the sub-frequencies use the "clock enable" of the D toggles
+--   this simplifies the management of clock/signal synchronization by limiting the number of clocks to 1
 --
--- clk               \_/¯\_/¯\_/¯\_/¯\_/¯\_/¯\_/¯\_/¯\_/¯\_/¯\_/¯\_/¯\_/¯\_/¯\_/¯\_/¯
+-- clk                     \_/?\_/?\_/?\_/?\_/?\_/?\_/?\_/?\_/?\_/?\_/?\_/?\_/?\_/?\_/?\_/?
 --
--- clk_mic_pin       ______/¯¯¯¯¯¯¯\_______/¯¯¯¯¯¯¯\_______/¯¯¯¯¯¯¯\_______/¯¯¯¯¯¯¯\_  ( /40 en réalité)
--- clk_mic           ____/¯\_____________/¯\_____________/¯\_____________/¯\_________  (pour échantillonnage DATA1 au front montant de clk_mig_pin)
---                      ---^            ---^                                           ( point d'échantillonnage)
--- clk_int           ____/¯\_____________________________/¯\_________________________  ( /8 en réalité )
--- clk_ech           ____________________________________/¯\_________________________  ( /64 en réalité )
+-- clk_mic_pin       ______/???????\_______/???????\_______/???????\_______/???????\_   ( /40 actually)
+-- clk_mic              ____/?\_____________/?\_____________/?\_____________/?\_________   (for DATA1 sampling at the clk_mig_pin)
+--                               ---^                  ---^                                                                    ( sampling point)
+-- clk_int                ____/?\_____________________________/?\_________________________  ( /8 actually)
+-- clk_ech               ____________________________________/?\_________________________  ( /64 actually)
 
 
 entity gest_freq is
   port (
     clk  : in std_logic; -- 100MHz
-    rst  : in boolean; -- reset synchrone à la libération, asynchrone à l'assertion
+    rst  : in boolean; -- reset synchronous at release, asynchronous at assertion
 
     clk_mic_pin  : out std_logic := '0';  -- 2.5MHz ( /40 )
 
-    clk_mic  : out boolean; -- top à 2.5MHz ( /40 )
-    clk_int : out boolean; -- top à 312.5kHz  ( /8 )
-    clk_ech  : out boolean  -- top à 39.0625kHz ( /8 )
+    clk_mic  : out boolean; -- top at 2.5MHz ( /40 )
+    clk_int : out boolean; -- top at 312.5kHz  ( /8 )
+    clk_ech  : out boolean  -- top at 39.0625kHz ( /8 )
     );
   end entity;
 
 architecture rtl of gest_freq is
 
 
-  -- integer avec étendue limitée: rend plus lisible l'écriture du code,
-  --   le compilateur en déduit automatiquement le nombre de bit nécessaire
-  --   la vérification par le simulateur est plus stricte.
+  -- integer with limited scope: makes writing code more readable,
+  --   the compiler automatically deduces the number of bits needed
+  --   the verification by the simulator is stricter.
   signal cpt_clk_mic : integer range 0 to 39 := 0; -- 100MHz => 2.5MHz (/40)
   signal cpt_clk_int : integer range 0 to 7 := 0; -- 2.5MHz => 312.5kHz (/8)
   signal cpt_clk_ech : integer range 0 to 7 := 0; -- 312.5kHz => 39.0625kHz (/8)
 
-  signal clk_mic_pin1 : std_logic := '0'; -- retard clk_mic d'un coup d'horloge, permet de mettre la bascule D finale dans l'IO
-   -- et permet de bien échantilloné le signal d'entrée au front montant de clk_pin (pas 1 coup d'horloge = 10ns après)
+  signal clk_mic_pin1 : std_logic := '0'; -- delay clk_mic a stroke of the clock, allows to put the final D toggle in the IO
+   -- and allows to well sample the input signal at the front rising of clk_pin (not 1 clock stroke = 10ns after)
 
 
   begin
@@ -62,13 +62,13 @@ architecture rtl of gest_freq is
         cpt_clk_mic <= cpt_clk_mic + 1;
       end if;
 
-      if (cpt_clk_mic < 20) then  -- rapport cyclique 50%
+      if (cpt_clk_mic < 20) then  -- duty cycle 50%
         clk_mic_pin1 <= '1';
       else
         clk_mic_pin1 <= '0';
       end if;
       
-      clk_mic_pin <= clk_mic_pin1; -- Bascule D dans IO et synchro avec clk_mic interne
+      clk_mic_pin <= clk_mic_pin1; -- Switch D to IO and sync with internal clk_mic
 
       clk_mic <= false;
       clk_int <= false;
