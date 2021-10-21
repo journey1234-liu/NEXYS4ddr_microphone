@@ -9,7 +9,7 @@ entity auto_vol_division is
   port(clk  : in std_logic; -- 100MHz
        rst  : in boolean;
 
-       clk_ce_in : in boolean; -- clock enable en entrÃ©e, 39.0625kHz
+       clk_ce_in : in boolean; -- clock enable input, 39.0625kHz
        ech_in : in signed(17 downto 0);
 
        ech_out : out signed(17 downto 0) := (others => '0')
@@ -27,7 +27,7 @@ architecture rtl of auto_vol_division is
     signal gain_moy : signed (17 downto 0);
     signal max : signed (17 downto 0); -- maximum
 
-    constant n : integer := 3; -- décrémentation du max à chaque coup d'horloge
+    constant n : integer := 3; -- decrement of the max with each stroke of the clock
 
 begin
 
@@ -37,11 +37,11 @@ begin
       
         if (clk_ce_in) then
         
-            if (ech_in_reg >= 0) then -- detection du maximum
+            if (ech_in_reg >= 0) then -- maximum detection
               if (max < ech_in_reg) then
                   max <= ech_in_reg;
               else
-                  if (max >= 0) then -- on decremente le max si on n'a pas d'echantillons superieur
+                  if (max >= 0) then -- we decrement the max if we do not have superior samples
                     max <= max - n;
                   else
                     max <= max + n;
@@ -60,7 +60,7 @@ begin
             end if;
     
             if (clk_ce_in) then
-                if (max >= 0) then -- calcul du gain a appliquer
+                if (max >= 0) then -- calculation of the gain to be applied
                     gain <=  TO_SIGNED(2**15,gain'length) / max;
                 else
                     gain <= TO_SIGNED(2**15,gain'length) / (- max);
@@ -69,7 +69,7 @@ begin
             end if;
     
             
-            if (gain_buff = 0) then -- effet saturation du gain
+            if (gain_buff = 0) then -- gain saturation effect
                 gain_buff2 <= to_signed(1* 128, gain_buff2'length) ;
             elsif (gain > 15) then
                 gain_buff2 <= to_signed(15* 128, gain_buff'length);
@@ -87,11 +87,11 @@ begin
                 end if;
             end if;            
     
-            ech_out_reg <= resize ((ech_in_reg * gain_moy), 25) (24 downto 7)  ; -- application du gain
+            ech_out_reg <= resize ((ech_in_reg * gain_moy), 25) (24 downto 7)  ; -- application of the gain
     
     
-            ech_in_reg <= ech_in; -- bufferisation de l'entree
-            ech_out <= ech_out_reg; -- bufferisation de la sortie
+            ech_in_reg <= ech_in; -- input buffering
+            ech_out <= ech_out_reg; -- output buffering
           end if;
       end if;
       
