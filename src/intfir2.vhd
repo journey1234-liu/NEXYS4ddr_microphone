@@ -6,73 +6,73 @@ use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
 
--- surechantilloneur / filtre x8
+-- x8 oversample/filter
 --
--- 1) le signal est surechantillonné par un facteur x8 (on ajoute 7 echantillons à 0 intermédiaire)
--- 2) on filtre (FIR passe bas) de manière à reconstruire le signal suréchantilloné parfaitement, en supprimant
---      la répétition de spectre du au suréchantillonnage
+-- 1) the signal is oversampled by a factor x8 (7 samples are added to 0 intermediate)
+-- 2) we filter (FIR passes low) so as to reconstruct the oversampled signal perfectly, removing
+--      spectrum repetition from oversampling
 --
--- Le filtre FIR passe-bas comporte 128-8 = 120 échantillons, de manière à ce que la mémoire circulaire contienne 16 échantillons
---  (c'est plus facile pour les pointeurs circulaire, pas besoin de tester le débordement)
+-- The low-pass FIR filter has 128-8 = 120 samples, so that the circular memory contains 16 samples
+--  (it's easier for circular pointers, no need to test the overflow)
 --
--- Comme 7/8 échantillons valent 0, on peut ne faire qu'une multiplication toute les 8 (le résultat des autres vaut 0 évidemment)
+-- As 7/8 samples are worth 0, we can only multiply all 8 (the result of the others is obviously 0)
 --
--- Dans l mémoire circulaire, on ne stocke que 1ech/8 soit 16 au total, (les autres valent 0, pas besoin de les stocker)
+-- In the circular memory, we store only 1/8 or 16 in total, (the others are worth 0, no need to store them)
 --
--- On produit à chaque insertion d'un nouvel échantillon dans la mémoire circulaire 8 sur échantillons filtrés en sortie
---   en faisant 120 multiplications coef*ech. (15 par sur-eéchantillon)
+-- Each time a new sample is inserted into the circular memory 8 on samples filtered at the output
+--   by making 120 coef*ech multiplications.  (15 per oversample)
 --
--- Ici on parcourt le filtre à partir de l'échantillon le + récent (on sur-échantillonne, les 8 sur-échantillons doivent être produit avant le prochain ech)
---  On incrémente les indices des échantillons (et donc des coef)
---  On produit d'abord le sur-échantillon le plus ancien (le n-7) jusqu'au plus récent. Le plus récent utilise l'échantillon le plus récent (ici 15),
---  donc les autres commencent un peu avant et donc vont utiliser en premier l'échantillon n-1 (ici 14)
---    (rappel: les sur-échantillons à 0 ne sont pas calculés ni stockés, ils sont virtuels...)
+-- Here we go through the filter from the sample + recent (we over-sample, the 8 over-samples must be produced before the next ech)
+--  We increment the indices of the samples (and therefore of the coef)
+--  The oldest oversample (the n-7) is first produced until the most recent.  The most recent one uses the most recent sample (here 15),
+--  so the others start a little before and therefore will use the n-1 sample first (here 14)
+--    (reminder: the over-samples at 0 are not calculated or stored, they are virtual...)
 --
---   ech   15 . . . . . . . 14 . . . . . . . 13 . . . . . . . 12 .  (...)   . 1 . . . . . . 0 . . . . . . .  (les . sont les 0 insérés virtuellement)
+--   ech   15 . . . . . . . 14 . . . . . . . 13 . . . . . . . 12 .  (...)   . 1 . . . . . . 0 . . . . . . .  (the.  are the 0 inserted virtually)
 --     (le + recent)                                                                (le + ancien)
---  (ici on indique les coef à utuliser pour chaque sur échantillon filtré)
+--  (here we indicate the coef to be used for each on filtered sample)
 --  sef-7                  0 1  2 3 4         9               17             105           113     118 119 -
 --  sef-6                0 1 2  3 4          10               18             106           114     119  -  -
 --
 --  sef-1     0 1 2 3 4 5 6  7               15               23             111           119 - - - - - - -
 --  sef-0   0 1 2 3 4 5 6 7  8               16               24             112       119  -  - - - - - - -
 --
--- On voit que le calcul des sur-échantillons filtrés -7 à -1 démarre à l'échantillon 14 (ech-1) et vont jusqu'à l'échantillon 0
---   tandis que le sur-échantillon filtré le plus récente (0) démarre à l'échantillon 15 (ech-0) et va jusqu'à l'échantillon 1.
+-- We see that the calculation of filtered over-samples -7 to -1 starts at sample 14 (ech-1) and go up to sample 0
+--   while the most recent filtered oversample (0) starts at sample 15 (ech-0) and goes all the way to sample 1.
 --
--- On voit que si l'on avait pris un filtre avec 128 coefficients (le même que fir1), alors il aurait fallu faire une mémoire circulaire sur 17
--- échantillons, mais alors les pointeurs sont moins faciles à gérer (le retour à 0 n'est pas simple alors qu'il l'est avec une puissance de 2)
+-- We see that if we had taken a filter with 128 coefficients (the same as fir1), then we would have had to make a circular memory on 17
+-- samples, but then the pointers are less easy to manage (the return to 0 is not simple while it is with a power of 2)
 --
--- On vise un multiplieur 18x18 signé, donc des nombres jusqu'à +/-2^17-1
---  C'est le cas des échantillons en entrée, est aussi des coefficients grâce à une normalisation adéquate (2^21)
---  les sur-echantillons filtrés ont néanmoins besoin d'un facteur x8, puisqu'on a étalé la puissance sur tout le spectre puis filtré, ce qui
---  enlève 7/8 de la puissance en coupant toutes les réplications de spectre.
+-- We aim for a signed 18x18 multiplier, so numbers up to +/-2^17-1
+--  This is the case of input samples, is also coefficients thanks to adequate normalization (2^21)
+--  filtered oversamplings nevertheless need an x8 factor, since the power was spread over the entire spectrum and then filtered, which
+--  removes 7/8 of the power by cutting off all spectrum replications.
 --
 --
--- Au final le calcul de chaque sur-échantillon prend 15 cycles + la latence de mise en route du pipeline, (6-7 clock) et on n'utilise
---   qu'un seul multiplieur cablé (block DSP48) et un seul accumulateur.
+-- In the end the calculation of each oversample takes 15 cycles + the latency of start-up of the pipeline, (6-7 clock) and we do not use
+--   only one wired multiplier (block DSP48) and a single accumulator.
 --
--- filtre FIR passe-bas et décimateur par 8
--- il doit parfaitement couper après 312.5kHz/2 et être plat gain=0dB de 0 à 10kHz environ
+-- LOW-pass FIR filter and decimator by 8
+-- it must perfectly cut after 312.5kHz/2 and be flat gain=0dB from about 0 to 10kHz
 --   Iowa Hills FIR Filter Designer Version 7.0, freeware
 --   Sampling Freq 2500000
 --   Fc = 0,05 (62.5kHz)
 --   Kaiser Beta 10, Window Kaiser, Rectangle 1,000
 --   120 taps (=coefficients)
---   0..-0.03dB jusqu'à 20kHz et <-90dB après 150kHz
+--   0..-0.03dB up to 20kHz and > -90dB after 150kHz
 --
 --
 
 entity intfir2 is
   port (
     clk  : in std_logic; -- 100MHz
-    rst  : in boolean; -- reset synchrone
+    rst  : in boolean; -- synchronous reset
 
-    clk_ce_in : in boolean; -- clock enable en entrée, 312.5kHz
-    data_in : in signed(17 downto 0); -- echantillon intermédiaire, provenant de fir1
+    clk_ce_in : in boolean; -- clock enable input, 312.5kHz
+    data_in : in signed(17 downto 0); -- intermediate sample, from fir1
 
-    clk_ce_out : in boolean; -- clock enable oversampling 312.5*8 = 2.5MkHz, se produit en même temps que clk_ce_in (1 fois / 8)
-    ech_out : out signed(17 downto 0) := (others => '0') -- échantillon sur-échantillonné filtré en sortie, 18bits signé, valide lorsque clk_ce_out est actif
+    clk_ce_out : in boolean; -- clock enable oversampling 312.5*8 = 2.5MkHz, occurs at the same time as clk_ce_in (1 time / 8)
+    ech_out : out signed(17 downto 0) := (others => '0') -- output filtered oversampled sample, 18bits signed, valid when clk_ce_out is active
     );
   end entity;
 
@@ -80,12 +80,12 @@ architecture rtl of intfir2 is
 
 -- FIR filter coefficients:
   type coef_mem_t is  array (natural range <>) of signed(17 downto 0);
-  signal coef_mem : coef_mem_t(0 to 128-1) := (  -- on n'utilise que 248 coef, mais taille à 256 pour éviter les erreurs en simultation sur index >= 248
--- FIR low pass filter généré avec Iowa Hills FIR Filter Designer Version 7.0 - Freeware
+  signal coef_mem : coef_mem_t(0 to 128-1) := (  -- only 248 coefs are used, but size at 256 to avoid errors in index simulation >= 248
+-- FIR low pass filter generated with Iowa Hills FIR Filter Designer Version 7.0 - Freeware
 --   Sampling Freq=2500000  , Fc=0.05 (62.5kHz), Num Taps=120, Kaiser Beta=10, Window Kaiser, 1,000 Rectangle 73.85kHz
---   Normalisation de coefficient à 2^21 et arrondi à l'entier le plus proche (max abs=123750 = 16.92bits => tient sur 17+1 = 18bits signés)
---   (controle du filtre par rechargement des coefficient dans Iowa Hills FIR Filter Designer => pas de différence à l'oeil nu.
--- note: le filtre est symétrique, coef(0) = coef(119), coef(1) = coef(118) ... coef(59)=coef(60)
+--   Normalization of coefficient to 2^21 and rounded to the nearest integer (max abs=123750 = 16.92bits => fits on 17+1 = 18bits signed)
+--   (filter control by reloading coefficients in Iowa Hills FIR Filter Designer => difference to the naked eye.
+-- note: the filter is symmetrical, coef(0) = coef(119), coef(1) = coef(118) ...  coef(59)=coef(60)
     0   => to_signed( -8     , 18),
     1   => to_signed( -14    , 18),
     2   => to_signed( -21    , 18),
@@ -206,35 +206,35 @@ architecture rtl of intfir2 is
     117 => to_signed( -21    , 18),
     118 => to_signed( -14    , 18),
     119 => to_signed( -8     , 18),
-    others => to_signed( 0   , 18) -- évite les erreur d'index >=120
+    others => to_signed( 0   , 18) -- avoids index errors >=120
            );
 
   signal coef_out : signed(17 downto 0);
   signal coef_out_reg : signed(17 downto 0);
 
-  -- mémoire circulaire pour garder les 32 derniers échantillons
+  -- circular memory to keep the last 32 samples
   type data_in_mem_t is  array (natural range <>) of signed(17 downto 0);
-  signal data_in_mem : data_in_mem_t(0 to 16-1) := ( others => to_signed(0,18) ); -- preinit à 0
+  signal data_in_mem : data_in_mem_t(0 to 16-1) := ( others => to_signed(0,18) ); -- preinit to 0
   signal data_out : signed(17 downto 0);
   signal data_out_reg : signed(17 downto 0);
 
-  signal ptr_in : unsigned(3 downto 0) := (others => '0'); -- pointeur d'entrée des échantillons
-  signal ptr_out : unsigned(3 downto 0) := (others => '0'); -- pointeur de calcul du filtres
+  signal ptr_in : unsigned(3 downto 0) := (others => '0'); -- sample input pointer
+  signal ptr_out : unsigned(3 downto 0) := (others => '0'); -- filter calculation pointer
   signal ptr_out_save : unsigned(3 downto 0) := (others => '0');
   signal ptr_out_last : unsigned(3 downto 0) := (others => '0');
-  signal ptr_out_reg : unsigned(3 downto 0) := (others => '0'); -- pointeur de calcul du filtres
-  signal ptr_coef : unsigned(6 downto 0) := (others => '0'); -- pointeur des coefficients
-  signal ptr_coef_reg : unsigned(6 downto 0); -- pointeur des coefficients
+  signal ptr_out_reg : unsigned(3 downto 0) := (others => '0'); -- filter calculation pointer
+  signal ptr_coef : unsigned(6 downto 0) := (others => '0'); -- coefficient pointer
+  signal ptr_coef_reg : unsigned(6 downto 0); -- coefficient pointer
 
-  signal cpt : integer range 0 to 16+10 := 0; -- index machine d'état de calcul du filtre, 128 + init pipeline & normalisation / saturation résultat
-  signal cpt_surech : integer range 0 to 7 := 7; -- compte les suréchantillons produits à chque cycle de sortie
+  signal cpt : integer range 0 to 16+10 := 0; -- filter calculation state machine index, 128 + init pipeline & normalization / saturation result
+  signal cpt_surech : integer range 0 to 7 := 7; -- counts oversample produced with output cycle
 
-  signal acc : signed(19+17 downto 0) := (others => '0'); -- les coef sont normalisés à 2^21, les echantillons à 2^17, on accumule 32x
-    -- la somme des valeurs absolues des coef vaut 2608724, = 21.32bits, on ne peut donc pas dépasser 22+17+1 (signe) bits
-    -- plus précisement , comme on n'utilise qu'1 coef sur 8, on cherche dans excel (intfir2.xls) le max des valeur absolues
-    --   de chacune des séquences de coef en en prenant 1/8.  C'est 333251, soit 18.353 bits, , on ne peut donc pas dépasser 19+17+1 (signe) bits
+  signal acc : signed(19+17 downto 0) := (others => '0'); -- the coef are normalized to 2^21, the samples to 2^17, we accumulate 32x
+    -- the sum of the absolute values of the coef is 2608724, = 21.32bits, so we can not exceed 22+ 17+1 (sign) bits
+    -- more precisely, as we use only 1 coef out of 8, we look in excel (intfir2.xls) for the max of absolute values
+    --   of each of the coef sequences by taking 1/8.   This is 333251, i.e. 18,353 bits, so we can not exceed 19 + 17 + 1 (sign) bits
 
-  signal mul_data_coef : signed(18+18-1 downto 0);  -- sortie du multiplieur 18x18 bits signés
+  signal mul_data_coef : signed(18+18-1 downto 0);  -- signed 18x18-bit multiplier output
   signal mul_data_coef_reg : signed(18+18-1 downto 0);
 
 
@@ -247,11 +247,11 @@ architecture rtl of intfir2 is
     if rising_edge(clk) then
 
       if clk_ce_in then
-        data_in_mem(to_integer(ptr_in)) <= data_in; -- remplie la mémoire circulaire avec les échantillons en entrée
+        data_in_mem(to_integer(ptr_in)) <= data_in; -- filled the circular memory with the input samples
         ptr_in <= ptr_in + 1; -- auto wrapping
         end if;
 
-      if (cpt /= 0) then -- le filtre tourne 8 fois par clk_ce_out
+      if (cpt /= 0) then -- the filter rotates 8 times a clk_ce_out
         cpt <= cpt + 1;
         ptr_out <= ptr_out - 1; -- auto wrapping
         ptr_coef <= ptr_coef + 8;
@@ -261,26 +261,26 @@ architecture rtl of intfir2 is
         cpt <= 1;
         acc <= (others => '0');
 
-        if clk_ce_in then -- démarre le surechantillonneur note: clk_ce_in se produit en même temps que clk_ce_out, 1 fois sur 8,
-          ptr_out <= ptr_in - 1;  -- ech-1 (ptr_in n'a pas encore été incrémenté)
+        if clk_ce_in then -- starts the oversampling note: clk_ce_in occurs at the same time as clk_ce_out, 1 time out of 8,
+          ptr_out <= ptr_in - 1;  -- ech-1 (ptr_in has not yet been incremented)
           ptr_out_save <= ptr_in - 1;
-          ptr_out_last <= ptr_in; -- ech pour le dernier
+          ptr_out_last <= ptr_in; -- ech for the last
           ptr_coef <= to_unsigned(1,ptr_coef'length);
           cpt_surech <= 1;
         elsif (cpt_surech>0) then
           ptr_out <= ptr_out_save;  -- ech-1
-          ptr_coef <= to_unsigned(cpt_surech,ptr_coef'length); -- commence par le dernier (on pourrait aussi commence par le premier vu que le filtre est symétrique)
-        else -- cpt_surech=0 (dernier sur echantillon, en commencant par l'échantillon le plus récent)
-          ptr_out <= ptr_out_last;  -- ech pour le dernier
-          ptr_coef <= to_unsigned(0,ptr_coef'length); -- commence par le dernier (on pourrait aussi commence par le premier vu que le filtre est symétrique)
+          ptr_coef <= to_unsigned(cpt_surech,ptr_coef'length); -- starts with the last one (we could also start with the first since the filter is symmetrical)
+        else -- cpt_surech=0 (last on sample, starting with the most recent sample)
+          ptr_out <= ptr_out_last;  -- ech for the last
+          ptr_coef <= to_unsigned(0,ptr_coef'length); -- starts with the last one (we could also start with the first since the filter is symmetrical)
           end if;
 
         end if;
 
-      if (cpt>=6) and (cpt<15+6) then -- on accumule une fois le pipeline lancé
-        acc <= acc + mul_data_coef_reg; -- accumulateur
-      elsif (cpt=15+6) then -- fin de la décimation, normalisation par 21-3 (coef filtre normalisé par 2^21, mais surechantillonnage par 8
-        if (acc(acc'high downto 21-3) < -2**17) then  -- en ajoutant des zéro => perte d'amplitude d'1 facteur 8 après filtrage
+      if (cpt>=6) and (cpt<15+6) then -- we accumulate once the pipeline is launched
+        acc <= acc + mul_data_coef_reg; -- accumulator
+      elsif (cpt=15+6) then -- end of decimation, normalization by 21-3 (filter coef normalized by 2^21, but oversampling by 8
+        if (acc(acc'high downto 21-3) < -2**17) then  -- by adding zero => loss of amplitude of 1 factor 8 after filtering
           ech_out <= to_signed(-2**17,ech_out'length);
         elsif (acc(acc'high downto 21-3) > 2**17 - 1) then
           ech_out <= to_signed(2**17 - 1,ech_out'length);
@@ -288,19 +288,19 @@ architecture rtl of intfir2 is
           ech_out <= acc(17+21-3 downto 21-3);
           end if;
         if (cpt_surech<7) then cpt_surech <= cpt_surech + 1; else cpt_surech <= 0; end if;
-        cpt <= 0; -- fin de ce surechantillon, prêt pour le suivant
+        cpt <= 0; -- end of this oversample, ready for the next one
         end if;
 
-      ptr_out_reg <= ptr_out; -- bufferise les adresses et les data en sortie pour fréquence max !
-      data_out <= data_in_mem(to_integer(ptr_out_reg)); -- on n'est pas à un ou 2 coup d'horloge prêt et on a plein de bascules D.
+      ptr_out_reg <= ptr_out; -- buffers addresses and data output for max frequency!
+      data_out <= data_in_mem(to_integer(ptr_out_reg)); -- we are not at one or 2 stroke of the clock ready and we have plenty of D rockers.
       data_out_reg <= data_out;
 
       ptr_coef_reg <= ptr_coef;
       coef_out <= coef_mem(to_integer(ptr_coef_reg));
       coef_out_reg <= coef_out;
 
-      mul_data_coef <= data_out_reg * coef_out_reg; -- multiplieur 18x18 signé
-      mul_data_coef_reg <= mul_data_coef; -- buffer pour vitesse max
+      mul_data_coef <= data_out_reg * coef_out_reg; -- signed 18x18 multiplier
+      mul_data_coef_reg <= mul_data_coef; -- buffer for max speed
 
       if rst then
           ptr_in <= (others => '0');
