@@ -31,7 +31,7 @@ begin
 
 
       se1: entity work.intfir1
-    port map -- surechantillonneur, x8 (39.0625kHz->312.5kHz)
+    port map -- oversampler, x8 (39.0625kHz->312.5kHz)
       (
       clk => clk,
       rst => rst,
@@ -42,7 +42,7 @@ begin
       );
 
   se2: entity work.intfir2
-    port map -- surechantillonneur, x8 (312.5kHz->2.5MHz)
+    port map -- oversampler, x8 (312.5kHz->2.5MHz)
       (
       clk => clk, rst => rst,
       clk_ce_in => clk_int, data_in => ech_int,
