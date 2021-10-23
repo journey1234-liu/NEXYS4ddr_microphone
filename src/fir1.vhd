@@ -34,7 +34,7 @@ entity fir1 is
     rst  : in boolean; -- synchronous reset
 
     clk_ce_in : in boolean; -- clock enable input, 2.5MHz
-    data_in : in std_logic; -- PDM data input 0 or 1 modulated sigma delta
+    data_in : in std_logic; -- PDM data input 0 or 1, sigma-delta modulated
 
     clk_ce_out : in boolean; -- clock enable decimation 2.5MHz/8 = 312.5kHz, occurs at the same time as clk_ce_in
     ech_out : out signed(17 downto 0) := (others => '0') -- samples decimated in output, 18bits signed, valid when clk_ce_out is active
@@ -211,7 +211,7 @@ architecture rtl of fir1 is
 
   signal acc : signed(20 downto 0) := (others => '0'); -- the coefs are normalized to 2^19, and the gain is 2^19 (about due to rounding)
     -- we add a sign bit + 1 bit to be sure that there is no overflow
-    -- the sum of the absolute values of the coef is 663982, = 1934bits, so it takes 20bits+sign=21bits
+    -- the sum of the absolute values of the coef is 663982 = 19.34bits, so it takes 20bits+sign=21bits
 
 
   begin
