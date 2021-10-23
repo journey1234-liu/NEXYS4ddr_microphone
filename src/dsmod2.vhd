@@ -7,7 +7,7 @@ use ieee.numeric_std.all;
 
 -- delta-sigma modulator of order 2 (see Understanding Delta-Sigma Data Converter, Richard Schreier & Gabor C. Temes page 90)
 --
---  (data_in) X(z)  18bits sign?---> + ---------(U(z))----------> 1 bit troncation ----------> Y(z) (data_out)
+--  (data_in) X(z)  18bits sign?---> + ---------(U(z))----------> 1 bit truncation ----------> Y(z) (data_out)
 --                                   ^                     |     (sort either -2^17       |
 --                                   |                     |      either +2^17            |
 --                                   |                     v                            v
